@@ -8,7 +8,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Shopify/sarama"
 	"github.com/labstack/echo/v4"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/Shopify/sarama/otelsarama"
+	"go.opentelemetry.io/otel"
 	tracesdk "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -24,6 +27,13 @@ func runBackend(ctx context.Context, wg *sync.WaitGroup) {
 		panic(err)
 	}
 
+	p, cfg, err := getKafkaProducer()
+	if err != nil {
+		panic(err)
+	}
+	p = otelsarama.WrapSyncProducer(cfg, p, otelsarama.WithTracerProvider(tp))
+	defer p.Close()
+
 	e := echo.New()
 	e.HideBanner = true
 	go func() {
@@ -35,16 +45,35 @@ func runBackend(ctx context.Context, wg *sync.WaitGroup) {
 	e.GET("/", func(c echo.Context) error {
 		return c.String(http.StatusOK, "backend")
 	})
-	e.GET("/echo", echoHandler(tp))
+	e.GET("/echo", echoHandler(tp, p))
 
 	log.Println("Backend starting up")
 	addr := fmt.Sprintf(":%d", backendPort)
 	e.Start(addr)
 }
 
-func echoHandler(tp *tracesdk.TracerProvider) echo.HandlerFunc {
+func echoHandler(tp *tracesdk.TracerProvider, p sarama.SyncProducer) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		req := c.Request()
+
+		doTrace(
+			req.Context(),
+			tp,
+			"backend-task",
+			nil,
+			func(ctx context.Context, s trace.Span) error {
+				time.Sleep(10 * time.Millisecond)
+				return nil
+			},
+		)
+
+		msg := &sarama.ProducerMessage{
+			Topic: kafkaTopic,
+			Value: sarama.StringEncoder("hello world!!!"),
+		}
+		otel.GetTextMapPropagator().Inject(req.Context(), otelsarama.NewProducerMessageCarrier(msg))
+		p.SendMessage(msg)
+
 		resp := struct {
 			Request string
 			Header  http.Header
@@ -52,17 +81,6 @@ func echoHandler(tp *tracesdk.TracerProvider) echo.HandlerFunc {
 			Request: req.URL.String(),
 			Header:  req.Header,
 		}
-
-		doTrace(
-			req.Context(),
-			tp,
-			"heavy-task",
-			nil,
-			func(ctx context.Context, span trace.Span) error {
-				time.Sleep(50 * time.Millisecond)
-				return nil
-			},
-		)
 		return c.JSON(http.StatusOK, &resp)
 	}
 }

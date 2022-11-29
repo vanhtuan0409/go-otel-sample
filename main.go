@@ -8,10 +8,12 @@ import (
 	"sync"
 )
 
-const (
-	proxyPort      = 8081
-	backendPort    = 8080
+var (
+	proxyPort      = 12081
+	backendPort    = 12080
 	jaegerEndpoint = "127.0.0.1"
+	kafkaBrokers   = []string{"localhost:9092"}
+	kafkaTopic     = "otel-kafka"
 )
 
 func init() {
