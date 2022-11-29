@@ -10,6 +10,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 func runProxy(ctx context.Context, wg *sync.WaitGroup) {
@@ -18,7 +19,7 @@ func runProxy(ctx context.Context, wg *sync.WaitGroup) {
 		wg.Done()
 	}()
 
-	_, err := makeTraceProvider("proxy")
+	tp, err := makeTraceProvider("proxy")
 	if err != nil {
 		panic(err)
 	}
@@ -30,6 +31,8 @@ func runProxy(ctx context.Context, wg *sync.WaitGroup) {
 		e.Shutdown(context.Background())
 	}()
 
+	e.Use(TracingMiddleware(e, tp))
+	e.Use(LogTraceIDMiddleware())
 	e.GET("/", func(c echo.Context) error {
 		return c.String(http.StatusOK, "proxy")
 	})
@@ -45,6 +48,10 @@ func runProxy(ctx context.Context, wg *sync.WaitGroup) {
 		Rewrite: map[string]string{
 			"/proxy/*": "/$1",
 		},
+		Transport: otelhttp.NewTransport(
+			http.DefaultTransport,
+			otelhttp.WithTracerProvider(tp),
+		),
 	}))
 
 	log.Println("Proxy starting up")

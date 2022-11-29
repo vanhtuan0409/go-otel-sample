@@ -11,7 +11,7 @@ import (
 const (
 	proxyPort      = 8081
 	backendPort    = 8080
-	jaegerEndpoint = "local-jaeger-agent.tracing.svc.kube"
+	jaegerEndpoint = "127.0.0.1"
 )
 
 func init() {
