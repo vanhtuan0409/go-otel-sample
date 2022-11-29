@@ -18,6 +18,11 @@ func runProxy(ctx context.Context, wg *sync.WaitGroup) {
 		wg.Done()
 	}()
 
+	_, err := makeTraceProvider("proxy")
+	if err != nil {
+		panic(err)
+	}
+
 	e := echo.New()
 	e.HideBanner = true
 	go func() {
